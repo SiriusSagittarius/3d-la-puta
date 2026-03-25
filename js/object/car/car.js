@@ -9,7 +9,7 @@ export function createCar(scene, targets) {
 
   // Dein 3D-Modell laden (Datei muss 'car.gltf' heißen)
   loader.load(
-    "car.gltf",
+    "js/object/car/car.gltf",
     (gltf) => {
       const model = gltf.scene;
 

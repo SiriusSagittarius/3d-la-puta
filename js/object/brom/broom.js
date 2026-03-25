@@ -4,7 +4,7 @@ export class Broom {
 
     // Das Bild-Element für den Besen erstellen
     this.element = document.createElement("img");
-    this.element.src = "img/besen.png"; // Korrekter Pfad zum Bild
+    this.element.src = "assets/img/besen.png"; // Korrekter Pfad zum Bild
     this.element.alt = "Broom";
     this.element.id = "broom";
 
