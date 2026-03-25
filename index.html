@@ -77,7 +77,7 @@
         align-items: center;
         z-index: 15;
         pointer-events: none;
-        font-family: 'Courier New', monospace;
+        font-family: "Courier New", monospace;
         color: cyan;
       }
       .dial {
@@ -99,6 +99,21 @@
       .dial label {
         font-size: 12px;
       }
+      /* Rückspiegel Rahmen */
+      #mirrorBorder {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 300px;
+        height: 100px;
+        border: 4px solid #333;
+        border-radius: 10px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+        display: none; /* Nur sichtbar beim Fahren */
+        z-index: 25;
+        pointer-events: none;
+      }
     </style>
   </head>
   <body>
@@ -107,15 +122,21 @@
     <img id="weapon" src="img/sniper/s2.png" alt="Weapon" />
 
     <div id="info">
-      WASD = Laufen / Umschauen (im Auto) | Pfeiltasten = Fahren | Maus = Schauen |
-      <b>Linksklick = SCHIESSEN</b> | <b>Mausrad (Klick) = Zielen</b> | <b>Rechtsklick = Nachladen</b><br />
-      <b>E = Auto Ein-/Aussteigen</b> | Munition: <span id="ammo">30</span> / 30 | Punkte:
+      WASD = Laufen / Umschauen (im Auto) | Pfeiltasten = Fahren | Maus =
+      Schauen |
+      <b>Linksklick = SCHIESSEN</b> | <b>Mausrad (Klick) = Zielen</b> |
+      <b>Rechtsklick = Nachladen</b><br />
+      <b>E = Auto Ein-/Aussteigen</b> | Munition: <span id="ammo">30</span> / 30
+      | Punkte:
       <span id="score">0</span>
     </div>
     <div id="crosshair"></div>
     <canvas id="gameCanvas"></canvas>
     <canvas id="minimap" width="200" height="200"></canvas>
-    
+
+    <!-- Rückspiegel Rahmen -->
+    <div id="mirrorBorder"></div>
+
     <!-- Auto Dashboard -->
     <div id="dashboard">
       <div class="dial">
@@ -130,7 +151,8 @@
           "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
           "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
           "game-level": "./level-boxes.js",
-          "car-class": "./car.js"
+          "car-class": "./car.js",
+          "broom-class": "./broom.js"
         }
       }
     </script>
@@ -140,6 +162,7 @@
       import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
       import { createLevel } from "game-level";
       import { createCar } from "car-class";
+      import { Broom } from "broom-class";
 
       // --- SETUP SCENE ---
       const scene = new THREE.Scene();
@@ -177,6 +200,7 @@
       const carDoorSound = new THREE.Audio(listener);
 
       // Hintergrundmusik laden
+      // Sounds laden
       audioLoader.load("audio/sound.mp3", (buffer) => {
         backgroundMusic.setBuffer(buffer);
         backgroundMusic.setLoop(true);
@@ -244,11 +268,12 @@
         rainSound.setLoop(true);
         rainSound.setVolume(0.5);
       });
-      
+
       // Bug-Sound laden
       audioLoader.load("audio/bug.mp3", (buffer) => {
         bugSound.setBuffer(buffer);
         bugSound.setVolume(1.0);
+        bugSound.setVolume(0.8);
       });
 
       // --- LICHT ---
@@ -319,7 +344,11 @@
       for (let i = 0; i < 30; i++) {
         const puddle = new THREE.Mesh(puddleGeo, puddleMat);
         puddle.rotation.x = -Math.PI / 2;
-        puddle.position.set(Math.random() * 180 - 90, 0.03, Math.random() * 180 - 90);
+        puddle.position.set(
+          Math.random() * 180 - 90,
+          0.03,
+          Math.random() * 180 - 90,
+        );
         puddle.scale.set(0, 0, 0); // Anfangs unsichtbar
         scene.add(puddle);
         puddles.push(puddle);
@@ -329,7 +358,17 @@
       const targets = [];
       createLevel(scene, targets);
 
+      // --- FLUGBESEN ---
+      const broom = new Broom();
+
       const carGroup = createCar(scene, targets);
+
+      // --- RÜCKSPIEGEL KAMERA ---
+      // Blick nach hinten (da Auto +Z fährt, ist hinten -Z)
+      const rearCamera = new THREE.PerspectiveCamera(80, 300 / 100, 0.1, 500);
+      rearCamera.position.set(0, 1.8, -0.5); // Leicht erhöht, Blick nach hinten
+      rearCamera.rotation.y = Math.PI; // Um 180 Grad drehen, um nach hinten zu schauen
+      carGroup.add(rearCamera); // An Auto kleben
 
       // --- REGEN SYSTEM ---
       const rainGeo = new THREE.BufferGeometry();
@@ -394,6 +433,8 @@
           if (backgroundMusic.buffer && !backgroundMusic.isPlaying)
             backgroundMusic.play();
         } else {
+          if (broom.isActive) return; // Nicht schießen beim Fliegen
+          if (isDriving) return; // Keine Maus-Aktionen im Auto (verhindert Konflikte)
           if (e.button === 0) shoot(); // Linksklick
           if (e.button === 1) toggleScope(); // Mausrad-Klick (Zielen)
           if (e.button === 2) reload(); // Rechtsklick (Nachladen)
@@ -413,6 +454,7 @@
 
       function reload() {
         if (isReloading || ammo === maxAmmo) return;
+        if (isReloading || ammo === maxAmmo || isDriving) return;
         isReloading = true;
 
         if (reloadSound.buffer) {
@@ -458,6 +500,7 @@
       const crosshair = document.getElementById("crosshair");
       function shoot() {
         if (isReloading || ammo <= 0) return;
+        if (isReloading || ammo <= 0 || isDriving) return;
         ammo--;
         document.getElementById("ammo").innerText = ammo;
 
@@ -511,6 +554,7 @@
         moveSprint = false,
         moveCrouch = false,
         canJump = false;
+      let isFlying = false;
       let driveForward = false,
         driveBackward = false,
         steerLeft = false,
@@ -531,13 +575,40 @@
         if (e.code === "ArrowDown") driveBackward = true;
         if (e.code === "ArrowLeft") steerLeft = true;
         if (e.code === "ArrowRight") steerRight = true;
+        if (e.code === "KeyB") {
+          if (!isDriving) {
+            // Nur wenn man nicht Auto fährt
+            isFlying = broom.toggle();
+
+            // Sichtbarkeit anderer Elemente steuern
+            if (isFlying) {
+              document.getElementById("weapon").style.display = "none";
+              document.getElementById("crosshair").style.display = "none";
+              if (isScoped) toggleScope(); // Zoom ausmachen
+              // Optional: Etwas Schwung nach oben beim Start
+              velocity.y = 10;
+            } else {
+              document.getElementById("weapon").style.display = "block";
+              document.getElementById("crosshair").style.display = "block";
+              // Fall-Schaden vermeiden beim Deaktivieren in der Luft?
+              // velocity.y = 0;
+            }
+          }
+        }
         if (e.code === "KeyE") {
           if (isDriving) {
             // Aussteigen
             isDriving = false;
-            
+
             cameraYawOffset = 0; // Kamera-Blick zurücksetzen
             cameraPitchOffset = 0;
+
+            // Falls man im Auto saß und den Besen noch anhatte (unwahrscheinlich aber sicher ist sicher)
+            if (isFlying) {
+              isFlying = false;
+              if (broom.isActive) broom.toggle();
+              document.getElementById("weapon").style.display = "block";
+            }
 
             // Sounds: Motor aus, Tür auf/zu
             if (carSound.isPlaying) carSound.stop();
@@ -548,17 +619,20 @@
 
             // Spieler links neben das Auto setzen
             const exitPos = carGroup.position.clone();
-            exitPos.x -= 3; 
+            exitPos.x -= 3;
             controls.getObject().position.copy(exitPos);
             controls.getObject().position.y = 1.6;
-            
+
             // Waffe wieder anzeigen
             document.getElementById("weapon").style.display = "block";
             document.getElementById("crosshair").style.display = "block";
             document.getElementById("dashboard").style.display = "none";
+            document.getElementById("mirrorBorder").style.display = "none";
           } else {
             // Einsteigen (nur wenn nah genug)
-            if (controls.getObject().position.distanceTo(carGroup.position) < 5) {
+            if (
+              controls.getObject().position.distanceTo(carGroup.position) < 5
+            ) {
               isDriving = true;
 
               // Sounds: Tür auf/zu, Motor an
@@ -572,6 +646,7 @@
               document.getElementById("weapon").style.display = "none";
               document.getElementById("crosshair").style.display = "none";
               document.getElementById("dashboard").style.display = "flex";
+              document.getElementById("mirrorBorder").style.display = "block";
             }
           }
         }
@@ -625,17 +700,23 @@
           // Beschleunigen / Bremsen
           if (driveForward) currentCarSpeed += 40.0 * delta;
           if (driveBackward) currentCarSpeed -= 40.0 * delta;
-          
+
           // Reibung (Auto wird langsamer, wenn man kein Gas gibt)
           currentCarSpeed -= currentCarSpeed * 2.0 * delta;
 
           // Dashboard Update
-          document.getElementById("speedDisplay").innerText = Math.abs(Math.round(currentCarSpeed * 3.6));
+          document.getElementById("speedDisplay").innerText = Math.abs(
+            Math.round(currentCarSpeed * 3.6),
+          );
 
           // Lenken (nur wenn das Auto rollt)
           if (Math.abs(currentCarSpeed) > 0.5) {
-            if (steerLeft) carGroup.rotation.y += 1.5 * delta * (currentCarSpeed > 0 ? 1 : -1);
-            if (steerRight) carGroup.rotation.y -= 1.5 * delta * (currentCarSpeed > 0 ? 1 : -1);
+            if (steerLeft)
+              carGroup.rotation.y +=
+                1.5 * delta * (currentCarSpeed > 0 ? 1 : -1);
+            if (steerRight)
+              carGroup.rotation.y -=
+                1.5 * delta * (currentCarSpeed > 0 ? 1 : -1);
           }
 
           // Bewegung anwenden (lokale Z-Achse des Autos)
@@ -649,51 +730,104 @@
           if (moveBackward) cameraPitchOffset += lookSpeed;
 
           // Pitch begrenzen (hoch/runter schauen)
-          cameraPitchOffset = Math.max(-Math.PI / 4, Math.min(Math.PI / 8, cameraPitchOffset));
+          cameraPitchOffset = Math.max(
+            -Math.PI / 4,
+            Math.min(Math.PI / 8, cameraPitchOffset),
+          );
 
-          const relativeCameraOffset = new THREE.Vector3(-0.35, 1.35, 0.2);
-          const cameraOffset = relativeCameraOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), carGroup.rotation.y);
-          controls.getObject().position.copy(carGroup.position).add(cameraOffset);
-          controls.getObject().rotation.y = carGroup.rotation.y + Math.PI + cameraYawOffset;
+          // Kamera höher (1.7) und weiter vorne (0.4), damit man die Straße sieht
+          const relativeCameraOffset = new THREE.Vector3(-0.35, 1.7, 0.4);
+          const cameraOffset = relativeCameraOffset.applyAxisAngle(
+            new THREE.Vector3(0, 1, 0),
+            carGroup.rotation.y,
+          );
+          controls
+            .getObject()
+            .position.copy(carGroup.position)
+            .add(cameraOffset);
+          controls.getObject().rotation.y =
+            carGroup.rotation.y + Math.PI + cameraYawOffset;
           controls.getObject().rotation.x = cameraPitchOffset;
-
         } else if (controls.isLocked) {
           const time = performance.now();
           const delta = (time - prevTime) / 1000;
 
-          velocity.x -= velocity.x * 10.0 * delta;
-          velocity.z -= velocity.z * 10.0 * delta;
-          velocity.y -= 9.8 * 3.0 * delta; // Gravitation (etwas stärker für besseres Spielgefühl)
-
-          direction.z = Number(moveForward) - Number(moveBackward);
-          direction.x = Number(moveRight) - Number(moveLeft);
-          direction.normalize();
-
           const isMoving = moveForward || moveBackward || moveLeft || moveRight;
 
-          // Geschwindigkeit basierend auf Status (Sprint/Ducken)
-          let speed = 150.0;
-          if (moveSprint) speed = 300.0;
-          if (moveCrouch) speed = 50.0;
+          if (isFlying) {
+            // --- FLUG PHYSIK ---
+            // Keine Gravitation, Luftwiderstand auf allen Achsen
+            velocity.x -= velocity.x * 5.0 * delta;
+            velocity.z -= velocity.z * 5.0 * delta;
+            velocity.y -= velocity.y * 5.0 * delta;
 
-          if (moveForward || moveBackward)
-            velocity.z -= direction.z * speed * delta;
-          if (moveLeft || moveRight) velocity.x -= direction.x * speed * delta;
+            const flySpeed = 500.0; // Schnelleres Fliegen
+            const flyDir = new THREE.Vector3();
+            controls.getDirection(flyDir); // Blickrichtung holen (3D)
 
-          controls.moveRight(-velocity.x * delta);
-          controls.moveForward(-velocity.z * delta);
+            if (moveForward) velocity.addScaledVector(flyDir, flySpeed * delta);
+            if (moveBackward)
+              velocity.addScaledVector(flyDir, -flySpeed * delta);
 
-          // Vertikale Bewegung (Springen/Fallen)
-          controls.getObject().position.y += velocity.y * delta;
+            // Seitwärtsbewegung (Strafe) funktioniert gut über controls.moveRight
+            // aber wir müssen die Geschwindigkeit manuell addieren, da moveRight Positionsänderung ist.
+            // Einfacher: Wir nutzen moveRight für seitwärts, aber addieren es manuell zur Position
+            // um Velocity-Konsistenz zu wahren, nutzen wir PointerLock-Logik für Seitwärts nicht direkt.
 
-          // Bodenkollision & Duck-Höhe
-          let playerHeight = 1.6;
-          if (moveCrouch) playerHeight = 0.8;
+            // Seitwärtsvektor berechnen (Rechts)
+            const sideDir = new THREE.Vector3();
+            sideDir
+              .crossVectors(flyDir, new THREE.Vector3(0, 1, 0))
+              .normalize();
+            // Achtung: crossVectors Ergebnis ist evtl. invertiert je nach System.
+            // ThreeJS camera schaut -Z.
 
-          if (controls.getObject().position.y < playerHeight) {
-            velocity.y = 0;
-            controls.getObject().position.y = playerHeight;
-            canJump = true;
+            if (moveRight) controls.moveRight(flySpeed * delta * 0.05); // Einfacher Hack für Seitwärts
+            if (moveLeft) controls.moveRight(-flySpeed * delta * 0.05);
+
+            // Position aktualisieren basierend auf Velocity (für Vor/Zurück/Hoch/Runter)
+            controls.getObject().position.addScaledVector(velocity, delta);
+
+            // Boden-Check nur verhindern, dass man durchfällt, aber kein "Stop" am Boden
+            if (controls.getObject().position.y < 2.0) {
+              controls.getObject().position.y = 2.0;
+              velocity.y = 0;
+            }
+          } else {
+            // --- NORMALE LAUF PHYSIK ---
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
+            velocity.y -= 9.8 * 3.0 * delta; // Gravitation
+
+            direction.z = Number(moveForward) - Number(moveBackward);
+            direction.x = Number(moveRight) - Number(moveLeft);
+            direction.normalize();
+
+            // Geschwindigkeit basierend auf Status (Sprint/Ducken)
+            let speed = 150.0;
+            if (moveSprint) speed = 300.0;
+            if (moveCrouch) speed = 50.0;
+
+            if (moveForward || moveBackward)
+              velocity.z -= direction.z * speed * delta;
+            if (moveLeft || moveRight)
+              velocity.x -= direction.x * speed * delta;
+
+            controls.moveRight(-velocity.x * delta);
+            controls.moveForward(-velocity.z * delta);
+
+            // Vertikale Bewegung (Springen/Fallen)
+            controls.getObject().position.y += velocity.y * delta;
+
+            // Bodenkollision
+            let playerHeight = 1.6;
+            if (moveCrouch) playerHeight = 0.8;
+
+            if (controls.getObject().position.y < playerHeight) {
+              velocity.y = 0;
+              controls.getObject().position.y = playerHeight;
+              canJump = true;
+            }
           }
 
           // --- PARTIKEL UPDATE ---
@@ -749,30 +883,43 @@
           ctx.save();
           // 1. Ursprung in die Mitte des Canvas setzen
           ctx.translate(100, 100);
-          
+
           // 2. Welt um den Spieler rotieren (damit "Oben" immer Blickrichtung ist)
           // Wir drehen das Canvas passend zur Kameradrehung
           ctx.rotate(camera.rotation.y);
 
           // 3. Welt verschieben, sodass der Spieler im Zentrum (0,0) steht
           const mapScale = 1;
-          ctx.translate(-camera.position.x * mapScale, -camera.position.z * mapScale);
+          ctx.translate(
+            -camera.position.x * mapScale,
+            -camera.position.z * mapScale,
+          );
 
           // Gebäude zeichnen (Grau)
           ctx.fillStyle = "rgba(150, 150, 150, 0.6)";
           targets.forEach((obj) => {
             // Nur Boxen auf der Karte zeigen (Wände/Gebäude)
-            if (obj.geometry.type === 'BoxGeometry') {
-               const w = obj.geometry.parameters.width * mapScale;
-               const d = obj.geometry.parameters.depth * mapScale;
-               // Zeichnen an absoluter Weltposition (durch translate jetzt relativ zum Spieler)
-               ctx.fillRect(obj.position.x * mapScale - w/2, obj.position.z * mapScale - d/2, w, d);
+            if (obj.geometry.type === "BoxGeometry") {
+              const w = obj.geometry.parameters.width * mapScale;
+              const d = obj.geometry.parameters.depth * mapScale;
+              // Zeichnen an absoluter Weltposition (durch translate jetzt relativ zum Spieler)
+              ctx.fillRect(
+                obj.position.x * mapScale - w / 2,
+                obj.position.z * mapScale - d / 2,
+                w,
+                d,
+              );
             }
           });
 
           // Auto zeichnen (Rot)
           ctx.fillStyle = "red";
-          ctx.fillRect(carGroup.position.x * mapScale - 3, carGroup.position.z * mapScale - 3, 6, 6);
+          ctx.fillRect(
+            carGroup.position.x * mapScale - 3,
+            carGroup.position.z * mapScale - 3,
+            6,
+            6,
+          );
 
           ctx.restore();
 
@@ -796,12 +943,12 @@
               const t = time * (moveSprint ? 0.02 : moveCrouch ? 0.005 : 0.01);
               swayX = Math.sin(t) * 30;
               swayY = Math.abs(Math.cos(t)) * 15;
-              
+
               // Waffe absenken beim Bewegen
               if (moveSprint) {
                 dropAmount = 150; // Stark absenken beim Sprinten (Q)
               } else {
-                dropAmount = 30;  // Leicht absenken beim normalen Laufen (WASD)
+                dropAmount = 30; // Leicht absenken beim normalen Laufen (WASD)
               }
             }
 
@@ -824,24 +971,24 @@
             if (sprintSound.isPlaying) sprintSound.pause();
             if (duckSound.isPlaying) duckSound.pause();
           } else if (isMoving && canJump) {
-              // Nur Sound abspielen, wenn am Boden (und kein Bug da ist)
-              if (moveSprint) {
-                // SPRINTEN
-                if (sprintSound.buffer && !sprintSound.isPlaying)
-                  sprintSound.play();
-                if (walkSound.isPlaying) walkSound.pause();
-                if (duckSound.isPlaying) duckSound.pause();
-              } else if (moveCrouch) {
-                // DUCKEN / SCHLEICHEN
-                if (duckSound.buffer && !duckSound.isPlaying) duckSound.play();
-                if (walkSound.isPlaying) walkSound.pause();
-                if (sprintSound.isPlaying) sprintSound.pause();
-              } else {
-                // NORMALES LAUFEN
-                if (walkSound.buffer && !walkSound.isPlaying) walkSound.play();
-                if (sprintSound.isPlaying) sprintSound.pause();
-                if (duckSound.isPlaying) duckSound.pause();
-              }
+            // Nur Sound abspielen, wenn am Boden (und kein Bug da ist)
+            if (moveSprint) {
+              // SPRINTEN
+              if (sprintSound.buffer && !sprintSound.isPlaying)
+                sprintSound.play();
+              if (walkSound.isPlaying) walkSound.pause();
+              if (duckSound.isPlaying) duckSound.pause();
+            } else if (moveCrouch) {
+              // DUCKEN / SCHLEICHEN
+              if (duckSound.buffer && !duckSound.isPlaying) duckSound.play();
+              if (walkSound.isPlaying) walkSound.pause();
+              if (sprintSound.isPlaying) sprintSound.pause();
+            } else {
+              // NORMALES LAUFEN
+              if (walkSound.buffer && !walkSound.isPlaying) walkSound.play();
+              if (sprintSound.isPlaying) sprintSound.pause();
+              if (duckSound.isPlaying) duckSound.pause();
+            }
           } else {
             // Keine Bewegung oder in der Luft -> Sounds stoppen
             if (walkSound.isPlaying) walkSound.pause();
@@ -873,7 +1020,25 @@
           crosshair.style.backgroundColor = "rgba(255, 255, 255, 0.8)";
         }
 
+        // 1. Haupt-Szene rendern (Vollbild)
+        renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+        renderer.setScissor(0, 0, window.innerWidth, window.innerHeight);
+        renderer.setScissorTest(false);
         renderer.render(scene, camera);
+
+        // 2. Rückspiegel rendern (Oben Mitte) - Nur wenn man fährt
+        if (isDriving) {
+          const mw = 300; // Spiegel Breite
+          const mh = 100; // Spiegel Höhe
+          const mx = (window.innerWidth - mw) / 2; // Mitte X
+          const my = window.innerHeight - mh - 10; // Oben Y (Achtung: WebGL Koordinaten sind von unten!)
+
+          renderer.setScissor(mx, my, mw, mh);
+          renderer.setViewport(mx, my, mw, mh);
+          renderer.setScissorTest(true); // Aktiviert den "Fenster-Modus" für den Spiegel
+          renderer.render(scene, rearCamera);
+          renderer.setScissorTest(false);
+        }
       }
 
       window.addEventListener("resize", () => {
