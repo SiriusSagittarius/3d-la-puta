@@ -29,7 +29,7 @@ function createBuildingTexture() {
   return texture;
 }
 
-export function createLevel(scene, targets) {
+export function createLevel(scene, targets, rings) {
   // Einfache Wolkenkratzer
   for (let i = 0; i < 50; i++) {
     const width = Math.random() * 10 + 5;
@@ -70,7 +70,7 @@ export function createLevel(scene, targets) {
     const poleHeight = 8;
     const pole = new THREE.Mesh(
       new THREE.CylinderGeometry(0.15, 0.15, poleHeight),
-      new THREE.MeshStandardMaterial({ color: 0x111111 })
+      new THREE.MeshStandardMaterial({ color: 0x111111 }),
     );
     pole.position.set(x, poleHeight / 2, z);
     scene.add(pole);
@@ -84,9 +84,29 @@ export function createLevel(scene, targets) {
     // Glühender Kopf (Mesh) für den visuellen Effekt
     const bulb = new THREE.Mesh(
       new THREE.BoxGeometry(0.6, 0.6, 0.6),
-      new THREE.MeshBasicMaterial({ color: 0xffaa00 })
+      new THREE.MeshBasicMaterial({ color: 0xffaa00 }),
     );
     bulb.position.set(x, poleHeight, z);
     scene.add(bulb);
+  }
+
+  // --- FLUG-RINGE ---
+  if (rings) {
+    const ringGeo = new THREE.TorusGeometry(4, 0.4, 16, 100);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // Leuchtendes Cyan
+
+    for (let i = 0; i < 20; i++) {
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+
+      // Zufällige Position in der Luft (Höhe 30 bis 80)
+      ring.position.set(
+        Math.random() * 180 - 90,
+        Math.random() * 50 + 30,
+        Math.random() * 180 - 90,
+      );
+      ring.rotation.y = Math.random() * Math.PI; // Zufällige Ausrichtung
+      scene.add(ring);
+      rings.push(ring);
+    }
   }
 }

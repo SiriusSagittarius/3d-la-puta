@@ -126,6 +126,7 @@
       Schauen |
       <b>Linksklick = SCHIESSEN</b> | <b>Mausrad (Klick) = Zielen</b> |
       <b>Rechtsklick = Nachladen</b><br />
+      <b>Besen (B):</b> Maus = Richtung, Links-Klick = Gas, Mausrad = Schraube |
       <b>E = Auto Ein-/Aussteigen</b> | Munition: <span id="ammo">30</span> / 30
       | Punkte:
       <span id="score">0</span>
@@ -198,6 +199,7 @@
       const bugSound = new THREE.Audio(listener);
       const carSound = new THREE.Audio(listener);
       const carDoorSound = new THREE.Audio(listener);
+      const windSound = new THREE.Audio(listener);
 
       // Hintergrundmusik laden
       // Sounds laden
@@ -274,6 +276,13 @@
         bugSound.setBuffer(buffer);
         bugSound.setVolume(1.0);
         bugSound.setVolume(0.8);
+      });
+
+      // Flug-Sound laden (blow.mp3)
+      audioLoader.load("audio/blow.mp3", (buffer) => {
+        windSound.setBuffer(buffer);
+        windSound.setLoop(true);
+        windSound.setVolume(0);
       });
 
       // --- LICHT ---
@@ -356,7 +365,8 @@
 
       // --- ZIELE / WÄNDE ---
       const targets = [];
-      createLevel(scene, targets);
+      const rings = []; // Liste für die Flugringe
+      createLevel(scene, targets, rings);
 
       // --- FLUGBESEN ---
       const broom = new Broom();
@@ -433,7 +443,12 @@
           if (backgroundMusic.buffer && !backgroundMusic.isPlaying)
             backgroundMusic.play();
         } else {
-          if (broom.isActive) return; // Nicht schießen beim Fliegen
+          if (isFlying) {
+            if (e.button === 0) {
+              isAccelerating = true; // Beschleunigen mit Linksklick
+            }
+            return; // Blockiert Schießen etc. beim Fliegen
+          }
           if (isDriving) return; // Keine Maus-Aktionen im Auto (verhindert Konflikte)
           if (e.button === 0) shoot(); // Linksklick
           if (e.button === 1) toggleScope(); // Mausrad-Klick (Zielen)
@@ -451,10 +466,11 @@
       let currentCarSpeed = 0;
       let cameraYawOffset = 0;
       let cameraPitchOffset = 0;
+      let isAccelerating = false;
+      let broomRollVelocity = 0;
 
       function reload() {
-        if (isReloading || ammo === maxAmmo) return;
-        if (isReloading || ammo === maxAmmo || isDriving) return;
+        if (isReloading || ammo === maxAmmo || isDriving || isFlying) return;
         isReloading = true;
 
         if (reloadSound.buffer) {
@@ -499,8 +515,7 @@
       const raycaster = new THREE.Raycaster();
       const crosshair = document.getElementById("crosshair");
       function shoot() {
-        if (isReloading || ammo <= 0) return;
-        if (isReloading || ammo <= 0 || isDriving) return;
+        if (isReloading || ammo <= 0 || isDriving || isFlying) return;
         ammo--;
         document.getElementById("ammo").innerText = ammo;
 
@@ -579,6 +594,9 @@
           if (!isDriving) {
             // Nur wenn man nicht Auto fährt
             isFlying = broom.toggle();
+
+            isAccelerating = false;
+            broomRollVelocity = 0;
 
             // Sichtbarkeit anderer Elemente steuern
             if (isFlying) {
@@ -673,9 +691,18 @@
         if (e.code === "ArrowLeft") steerLeft = false;
         if (e.code === "ArrowRight") steerRight = false;
       });
+      document.addEventListener("mouseup", (e) => {
+        if (isFlying && e.button === 0) {
+          isAccelerating = false;
+        }
+      });
 
       // --- ZOOM (Mausrad) ---
       document.addEventListener("wheel", (event) => {
+        if (isFlying) {
+          broomRollVelocity -= event.deltaY * 0.05; // Schraube mit Mausrad (viel schneller)
+          return;
+        }
         camera.fov += event.deltaY * 0.05;
         camera.fov = Math.max(30, Math.min(100, camera.fov)); // Begrenzung des Zooms
         camera.updateProjectionMatrix();
@@ -755,45 +782,68 @@
           const isMoving = moveForward || moveBackward || moveLeft || moveRight;
 
           if (isFlying) {
-            // --- FLUG PHYSIK ---
-            // Keine Gravitation, Luftwiderstand auf allen Achsen
-            velocity.x -= velocity.x * 5.0 * delta;
-            velocity.z -= velocity.z * 5.0 * delta;
-            velocity.y -= velocity.y * 5.0 * delta;
+            // --- FLUG PHYSIK (Maussteuerung) ---
+            // Luftwiderstand, damit man nicht ewig weiterfliegt
+            velocity.multiplyScalar(1.0 - 2.0 * delta);
 
-            const flySpeed = 500.0; // Schnelleres Fliegen
             const flyDir = new THREE.Vector3();
-            controls.getDirection(flyDir); // Blickrichtung holen (3D)
+            controls.getDirection(flyDir); // 3D-Blickrichtung holen
 
-            if (moveForward) velocity.addScaledVector(flyDir, flySpeed * delta);
-            if (moveBackward)
-              velocity.addScaledVector(flyDir, -flySpeed * delta);
+            // Beschleunigen mit gedrückter Maustaste
+            if (isAccelerating) {
+              const flySpeed = 50.0; // Fluggeschwindigkeit
+              velocity.addScaledVector(flyDir, flySpeed * delta);
+            }
 
-            // Seitwärtsbewegung (Strafe) funktioniert gut über controls.moveRight
-            // aber wir müssen die Geschwindigkeit manuell addieren, da moveRight Positionsänderung ist.
-            // Einfacher: Wir nutzen moveRight für seitwärts, aber addieren es manuell zur Position
-            // um Velocity-Konsistenz zu wahren, nutzen wir PointerLock-Logik für Seitwärts nicht direkt.
+            // Schraube (Rollen) mit dem Mausrad
+            broomRollVelocity *= 0.95; // Dämpfung, damit die Drehung von allein aufhört
+            const rollDelta = broomRollVelocity;
 
-            // Seitwärtsvektor berechnen (Rechts)
-            const sideDir = new THREE.Vector3();
-            sideDir
-              .crossVectors(flyDir, new THREE.Vector3(0, 1, 0))
-              .normalize();
-            // Achtung: crossVectors Ergebnis ist evtl. invertiert je nach System.
-            // ThreeJS camera schaut -Z.
+            // Kamera um die eigene Vorwärtsachse rollen
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
+              camera.quaternion,
+            );
+            camera.quaternion.premultiply(
+              new THREE.Quaternion().setFromAxisAngle(
+                forward,
+                rollDelta * delta,
+              ),
+            );
 
-            if (moveRight) controls.moveRight(flySpeed * delta * 0.05); // Einfacher Hack für Seitwärts
-            if (moveLeft) controls.moveRight(-flySpeed * delta * 0.05);
-
-            // Position aktualisieren basierend auf Velocity (für Vor/Zurück/Hoch/Runter)
+            // Position basierend auf der Geschwindigkeit aktualisieren
             controls.getObject().position.addScaledVector(velocity, delta);
 
-            // Boden-Check nur verhindern, dass man durchfällt, aber kein "Stop" am Boden
+            // Boden-Check, damit man nicht durchfällt
             if (controls.getObject().position.y < 2.0) {
               controls.getObject().position.y = 2.0;
-              velocity.y = 0;
+              velocity.y = Math.max(0, velocity.y); // Stoppt nur das Fallen, erlaubt aber das Steigen
+            }
+
+            // --- WIND SOUND ---
+            const speed = velocity.length();
+            if (windSound.buffer) {
+              if (!windSound.isPlaying) windSound.play();
+              // Lautstärke basierend auf Geschwindigkeit (0 bis 30 Speed = 0.0 bis 1.0 Volume)
+              const volume = Math.min(1.0, speed / 30.0);
+              windSound.setVolume(volume);
+            }
+
+            // --- RING CHECK (Durchfliegen) ---
+            for (let i = 0; i < rings.length; i++) {
+              const ring = rings[i];
+              if (
+                ring.visible &&
+                controls.getObject().position.distanceTo(ring.position) < 5
+              ) {
+                // Ring getroffen!
+                ring.visible = false; // Verschwinden lassen
+                score += 500; // Viele Punkte!
+                document.getElementById("score").innerText = score;
+                // Optional: Hier könnte man noch einen Sound abspielen (z.B. "ding")
+              }
             }
           } else {
+            if (windSound.isPlaying) windSound.stop();
             // --- NORMALE LAUF PHYSIK ---
             velocity.x -= velocity.x * 10.0 * delta;
             velocity.z -= velocity.z * 10.0 * delta;
