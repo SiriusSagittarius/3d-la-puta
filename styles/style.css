@@ -34,10 +34,11 @@ canvas {
   position: absolute;
   bottom: -10vh;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(calc(-50% + 350px)) rotateY(-15deg);
   height: 50vh; /* Größe der Waffe anpassen */
   pointer-events: none;
   z-index: 5;
+  perspective: 1000px;
 }
 #scope {
   position: absolute;

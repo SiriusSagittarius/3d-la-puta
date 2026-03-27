@@ -40,6 +40,7 @@ const carSound = new THREE.Audio(listener);
 const carDoorSound = new THREE.Audio(listener);
 const windSound = new THREE.Audio(listener);
 const healSound = new THREE.Audio(listener);
+const ringSound = new THREE.Audio(listener);
 
 // Sounds laden
 audioLoader.load("assets/audio/sound.mp3", (buffer) => {
@@ -126,6 +127,11 @@ audioLoader.load("assets/audio/blow.mp3", (buffer) => {
 audioLoader.load("assets/audio/heal.mp3", (buffer) => {
   healSound.setBuffer(buffer);
   healSound.setVolume(0.8);
+});
+// Ring-Sound laden
+audioLoader.load("assets/audio/ding.mp3", (buffer) => {
+  ringSound.setBuffer(buffer);
+  ringSound.setVolume(0.5);
 });
 
 // --- LICHT ---
@@ -463,14 +469,14 @@ function reload() {
 
   // Animation: Waffe senken (via CSS)
   const weaponImg = document.getElementById("weapon");
-  weaponImg.style.transform = "translateX(-50%) translateY(200px)";
+  weaponImg.style.transform = "translateX(calc(-50% + 350px)) translateY(200px) rotateY(-15deg)";
 
   // Zeit warten bis nachgeladen ist (1.5 Sekunden)
   setTimeout(() => {
     ammo = maxAmmo;
     document.getElementById("ammo").innerText = ammo;
     isReloading = false;
-    weaponImg.style.transform = "translateX(-50%) translateY(0)";
+    weaponImg.style.transform = "translateX(calc(-50% + 350px)) translateY(0) rotateY(-15deg)";
   }, 1500);
 }
 
@@ -510,16 +516,22 @@ function shoot() {
   // Waffen-Animation (Sprites wechseln)
   if (!isScoped) {
     const weaponImg = document.getElementById("weapon");
-    weaponImg.src = "assets/img/sniper/s3.png";
+    weaponImg.src = "assets/img/sniper/3.png";
     setTimeout(() => {
-      weaponImg.src = "assets/img/sniper/s4.png";
-    }, 80);
+      weaponImg.src = "assets/img/sniper/4.png";
+    }, 60);
     setTimeout(() => {
-      weaponImg.src = "assets/img/sniper/s5.png";
-    }, 160);
+      weaponImg.src = "assets/img/sniper/5.png";
+    }, 120);
     setTimeout(() => {
-      weaponImg.src = "assets/img/sniper/s2.png";
+      weaponImg.src = "assets/img/sniper/6.png";
+    }, 180);
+    setTimeout(() => {
+      weaponImg.src = "assets/img/sniper/7.png";
     }, 240);
+    setTimeout(() => {
+      weaponImg.src = "assets/img/sniper/2.png";
+    }, 300);
   }
 
   // Offset berechnen, wenn nicht im Scope (da Fadenkreuz verschoben ist)
@@ -860,7 +872,12 @@ function animate() {
           ring.visible = false; // Verschwinden lassen
           score += 500; // Viele Punkte!
           document.getElementById("score").innerText = score;
-          // Optional: Hier könnte man noch einen Sound abspielen (z.B. "ding")
+          
+          // Sound abspielen
+          if (ringSound.buffer) {
+            if (ringSound.isPlaying) ringSound.stop();
+            ringSound.play();
+          }
         }
       }
     } else {
@@ -1088,7 +1105,7 @@ function animate() {
       }
 
       // Gesamt-Transformation berechnen
-      weaponImg.style.transform = `translateX(calc(-50% + ${swayX}px)) translateY(${swayY + dropAmount}px)`;
+      weaponImg.style.transform = `translateX(calc(-50% + 350px + ${swayX}px)) translateY(${swayY + dropAmount}px) rotateY(-15deg)`;
     }
 
     // --- BUG SOUND LOGIC ---
